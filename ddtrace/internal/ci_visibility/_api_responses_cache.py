@@ -8,6 +8,8 @@ import typing as t
 from ddtrace.internal.logger import get_logger
 from ddtrace.internal.utils.formats import asbool
 
+_cache_dir_created = False
+
 
 log = get_logger(__name__)
 
@@ -20,7 +22,10 @@ def _is_response_cache_enabled():
 
 def _get_cache_file_path(cache_key: str) -> str:
     """Get the full path to the cache file"""
-    os.makedirs(_API_RESPONSE_CACHE_DIR, exist_ok=True)
+    global _cache_dir_created
+    if not _cache_dir_created:
+        os.makedirs(_API_RESPONSE_CACHE_DIR, exist_ok=True)
+        _cache_dir_created = True
     return os.path.join(_API_RESPONSE_CACHE_DIR, f"{cache_key}.json")
 
 
