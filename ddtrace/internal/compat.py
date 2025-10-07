@@ -113,14 +113,16 @@ def get_mp_context():
 def __getattr__(name: str) -> Any:
     # These attributes are expensive to pre-compute, so we make them lazy
     if name == "PYTHON_VERSION":
-        from platform import python_version
-
-        globals()[name] = python_version()
+        if name not in globals():
+            from platform import python_version
+            globals()[name] = python_version()
+        return globals()[name]
 
     elif name == "PYTHON_INTERPRETER":
-        from platform import python_implementation
-
-        globals()[name] = python_implementation()
+        if name not in globals():
+            from platform import python_implementation
+            globals()[name] = python_implementation()
+        return globals()[name]
 
     try:
         return globals()[name]
