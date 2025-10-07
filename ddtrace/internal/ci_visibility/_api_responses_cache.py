@@ -8,6 +8,10 @@ import typing as t
 from ddtrace.internal.logger import get_logger
 from ddtrace.internal.utils.formats import asbool
 
+_RESPONSE_CACHE_ENABLED = asbool(os.getenv("_DD_CIVISIBILITY_RESPONSE_CACHE_ENABLED", "false"))
+
+_DIR_CREATED = False
+
 
 log = get_logger(__name__)
 
@@ -15,12 +19,15 @@ _API_RESPONSE_CACHE_DIR = os.path.join(os.getcwd(), ".ddtrace_api_cache")
 
 
 def _is_response_cache_enabled():
-    return asbool(os.getenv("_DD_CIVISIBILITY_RESPONSE_CACHE_ENABLED", "false").lower())
+    return _RESPONSE_CACHE_ENABLED
 
 
 def _get_cache_file_path(cache_key: str) -> str:
     """Get the full path to the cache file"""
-    os.makedirs(_API_RESPONSE_CACHE_DIR, exist_ok=True)
+    global _DIR_CREATED
+    if not _DIR_CREATED:
+        os.makedirs(_API_RESPONSE_CACHE_DIR, exist_ok=True)
+        _DIR_CREATED = True
     return os.path.join(_API_RESPONSE_CACHE_DIR, f"{cache_key}.json")
 
 
