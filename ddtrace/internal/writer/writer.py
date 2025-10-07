@@ -81,10 +81,24 @@ DEFAULT_SMA_WINDOW = 10
 def _human_size(nbytes: float) -> str:
     """Return a human-readable size."""
     i = 0
-    suffixes = ["B", "KB", "MB", "GB", "TB"]
-    while nbytes >= 1000 and i < len(suffixes) - 1:
+    suffixes = ("B", "KB", "MB", "GB", "TB")
+    
+    if nbytes < 1000:
+        pass
+    elif nbytes < 1000_000:
         nbytes /= 1000.0
-        i += 1
+        i = 1
+    elif nbytes < 1000_000_000:
+        nbytes /= 1000_000.0
+        i = 2
+    elif nbytes < 1000_000_000_000:
+        nbytes /= 1000_000_000.0
+        i = 3
+    else:
+        while nbytes >= 1000 and i < len(suffixes) - 1:
+            nbytes /= 1000.0
+            i += 1
+
     f = ("%.2f" % nbytes).rstrip("0").rstrip(".")
     return "%s%s" % (f, suffixes[i])
 
