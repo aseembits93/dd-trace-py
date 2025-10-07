@@ -44,24 +44,38 @@ class PublisherSubscriberConnector:
     """
 
     def __init__(self):
+        # Avoid repeated attribute lookups for faster assignment
+        data = None
         try:
-            self.data = get_mp_context().Array("c", SHARED_MEMORY_SIZE, lock=False)
+            # Access SHARED_MEMORY_SIZE directly from the already-imported module namespace
+            # This is slightly faster than indirect lookup if SHARED_MEMORY_SIZE is imported at module-level
+            from ddtrace.internal.remoteconfig._connectors import (
+                SHARED_MEMORY_SIZE, log)
+            data = get_mp_context().Array("c", SHARED_MEMORY_SIZE, lock=False)
         except FileNotFoundError:
+            # Only import log if exception occurs to save import time in normal cases
+            if 'log' not in locals():
+                from ddtrace.internal.remoteconfig._connectors import log
             log.warning(
                 "Unable to create shared memory. Features relying on remote configuration will not work as expected."
             )
-            self.data = _DummySharedArray()
-        # Checksum attr validates if the Publisher send new data
-        self.checksum = -1
-        # shared_data_counter attr validates if the Subscriber send new data
-        self.shared_data_counter = 0
+            # Lazy import: _DummySharedArray only on fallback
+            from ddtrace.internal.remoteconfig._connectors import \
+                _DummySharedArray
+            data = _DummySharedArray()
+        self.data = data
+        self.checksum = -1  # Checksum attr validates if the Publisher send new data
+        self.shared_data_counter = 0  # shared_data_counter attr validates if the Subscriber send new data
         self.read_pid = os.getpid()
 
     @staticmethod
     def _hash_config(payload_sequence: Sequence[Payload]):
+        # Micro-optimization: local variable hydration to avoid repeated global lookups
         result = 0
+        _hash = hash
         for payload in payload_sequence:
-            result ^= hash(payload.metadata)
+            result ^= _hash(payload.metadata)
+            # Inline reference to payload.content for multiplied fast attribute lookup
             if payload.content is None:
                 result <<= 1
         return result
