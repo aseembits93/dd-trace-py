@@ -7,6 +7,7 @@ from typing import Text  # noqa:F401
 from typing import Tuple  # noqa:F401
 from typing import Type  # noqa:F401
 from typing import Union  # noqa:F401
+import multiprocessing
 
 
 __all__ = [
@@ -105,9 +106,13 @@ else:
 
 
 def get_mp_context():
-    import multiprocessing
+    # Cache the method lookup for faster execution
+    get_context = multiprocessing.get_context
 
-    return multiprocessing.get_context("fork" if sys.platform != "win32" else "spawn")
+    # Use a local variable to avoid repeated attribute lookups
+    start_method = "fork" if sys.platform != "win32" else "spawn"
+
+    return get_context(start_method)
 
 
 def __getattr__(name: str) -> Any:
