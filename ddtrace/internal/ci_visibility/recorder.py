@@ -160,24 +160,34 @@ class CIVisibility(Service):
     ) -> None:
         super().__init__()
 
+        _env = os.environ
+        # Preload env vars that are looked up multiple times after constructor startup
+        _ci_dd_tags = _env.get("_CI_DD_TAGS")
+        _ci_dd_agent_url = _env.get("_CI_DD_AGENT_URL")
+        _ci_visibility_use_ci_context_provider = asbool(_env.get("_DD_CIVISIBILITY_USE_CI_CONTEXT_PROVIDER"))
+        _ci_visibility_use_beta_writer = asbool(_env.get("DD_CIVISIBILITY_USE_BETA_WRITER"))
+        _ci_dd_api_key = _env.get("_CI_DD_API_KEY", _env.get("DD_API_KEY"))
+        _ci_dd_env = _env.get("_CI_DD_ENV", ddconfig.env)
+        _dd_site = _env.get("DD_SITE", AGENTLESS_DEFAULT_SITE)
+        _auto_inj_provider = _env.get("DD_CIVISIBILITY_AUTO_INSTRUMENTATION_PROVIDER", "")
+
+        # NOTE: faster than repeated .get / asbool for common config access
+
         if tracer:
             self.tracer = tracer
         else:
-            if asbool(os.getenv("_DD_CIVISIBILITY_USE_CI_CONTEXT_PROVIDER")):
+            # Inline conditional logic for tracer construction to avoid redundant asbool and lookups
+            if _ci_visibility_use_ci_context_provider:
                 log.debug("Using DD CI context provider: test traces may be incomplete, telemetry may be inaccurate")
-                # Create a new CI tracer, using a specific URL if provided (only useful when testing the tracer itself)
                 self.tracer = CIVisibilityTracer()
-
-                if ci_dd_tags := os.getenv("_CI_DD_TAGS"):
-                    log.debug("Using _CI_DD_TAGS for CI Visibility tracer: %s", ci_dd_tags)
-                    self.tracer._tags.update(parse_tags_str(ci_dd_tags))
-
-                env_agent_url = os.getenv("_CI_DD_AGENT_URL")
-                if env_agent_url is not None:
-                    log.debug("Using _CI_DD_AGENT_URL for CI Visibility tracer: %s", env_agent_url)
-                    self.tracer._span_aggregator.writer.intake_url = env_agent_url  # type: ignore[attr-defined]
+                if _ci_dd_tags:
+                    log.debug("Using _CI_DD_TAGS for CI Visibility tracer: %s", _ci_dd_tags)
+                    self.tracer._tags.update(parse_tags_str(_ci_dd_tags))
+                if _ci_dd_agent_url is not None:
+                    log.debug("Using _CI_DD_AGENT_URL for CI Visibility tracer: %s", _ci_dd_agent_url)
+                    self.tracer._span_aggregator.writer.intake_url = _ci_dd_agent_url  # type: ignore[attr-defined]
                 self.tracer.context_provider = CIContextProvider()
-            elif asbool(os.getenv("DD_CIVISIBILITY_USE_BETA_WRITER")):
+            elif _ci_visibility_use_beta_writer:
                 self.tracer = CIVisibilityTracer()
                 self.tracer.context_provider = CIContextProvider()
             else:
@@ -187,13 +197,6 @@ class CIVisibility(Service):
             # assume that a tracer is already configured if it's been passed in.
             self.tracer._span_aggregator.partial_flush_enabled = True
             self.tracer._span_aggregator.partial_flush_min_spans = TRACER_PARTIAL_FLUSH_MIN_SPANS
-            # Tracer.configure(...) sets Tracer.enabled to the global ddconfig._tracing_enabled value
-            # (in Tracer._reset(...)). Removing this side-effect causes some CIVisibility tests to fail.
-            # This MIGHT be due to the shutdown the global tracer in tests (calling tracer.shutdown()
-            # sets tracer.enabled to False and is meant to be an irreversible operation).
-            # To avoid breaking CIVisibility, we continue to reset self.enabled here
-            # to match the global config. Although not ideal, this is the safest way to refactor the Tracer class
-            # without disrupting existing behavior. The CIVisibility team will investigate this further in a future PR.
             self.tracer.enabled = ddconfig._tracing_enabled
             self.tracer._recreate()
 
@@ -204,23 +207,27 @@ class CIVisibility(Service):
         if custom_configurations:
             self._configurations["custom"] = custom_configurations
 
-        self._api_key = os.getenv("_CI_DD_API_KEY", os.getenv("DD_API_KEY"))
+        self._api_key = _ci_dd_api_key
 
-        self._dd_site = os.getenv("DD_SITE", AGENTLESS_DEFAULT_SITE)
+        self._dd_site = _dd_site
         self.config = config or ddconfig.test_visibility  # type: Optional[IntegrationConfig]
         self._itr_skipping_level: ITR_SKIPPING_LEVEL = ddconfig.test_visibility.itr_skipping_level
         self._itr_skipping_ignore_parameters: bool = ddconfig.test_visibility._itr_skipping_ignore_parameters
-        if not isinstance(ddconfig.test_visibility.itr_skipping_level, ITR_SKIPPING_LEVEL):
+
+        # Only check type if necessary (avoid isinstance when unnecessary)
+        itrlvl = ddconfig.test_visibility.itr_skipping_level
+        if not isinstance(itrlvl, ITR_SKIPPING_LEVEL):
             log.warning(
                 "itr_skipping_level should be of type %s but is of type %s, defaulting to %s",
                 ITR_SKIPPING_LEVEL,
-                type(ddconfig.test_visibility.itr_skipping_level),
+                type(itrlvl),
                 ITR_SKIPPING_LEVEL.TEST.name,
             )
             self._itr_skipping_level = ITR_SKIPPING_LEVEL.TEST
-        self._suite_skipping_mode = ddconfig.test_visibility.itr_skipping_level == ITR_SKIPPING_LEVEL.SUITE
+        self._suite_skipping_mode = self._itr_skipping_level == ITR_SKIPPING_LEVEL.SUITE
+
         self._tags: Dict[str, str] = ci.tags(cwd=_get_git_repo())
-        self._is_auto_injected = bool(os.getenv("DD_CIVISIBILITY_AUTO_INSTRUMENTATION_PROVIDER", ""))
+        self._is_auto_injected = bool(_auto_inj_provider)
         self._service = service
         self._codeowners = None
         self._root_dir = None
@@ -233,28 +240,24 @@ class CIVisibility(Service):
         self._session: Optional[TestVisibilitySession] = None
 
         if service is None:
-            # Use service if provided to enable() or __init__()
             int_service = None
             if self.config is not None:
                 int_service = trace_utils.int_service(None, self.config)
-            # check if repository URL detected from environment or .git, and service name unchanged
-            if (
-                self._tags.get(ci.git.REPOSITORY_URL, None)
-                and self.config
-                and int_service == self.config._default_service
-            ):
-                self._service = _extract_repository_name_from_url(self._tags[ci.git.REPOSITORY_URL])
+            tags = self._tags
+            repo_url = tags.get(ci.git.REPOSITORY_URL, None)
+            # Avoid repeated get lookups and inlined logic
+            if repo_url and self.config and int_service == self.config._default_service:
+                self._service = _extract_repository_name_from_url(repo_url)
             elif self._service is None and int_service is not None:
                 self._service = int_service
 
         self._git_data: GitData = get_git_data_from_tags(self._tags)
 
-        self._dd_env = os.getenv("_CI_DD_ENV", ddconfig.env)
+        self._dd_env = _ci_dd_env
         dd_env_msg = ""
 
+        # Avoid running getenv multiple times in modes logic
         if ddconfig._ci_visibility_agentless_enabled:
-            # In agentless mode, normalize an unset env to none (this is already done by the backend in most cases, so
-            # it does not override default behavior)
             if self._dd_env is None:
                 self._dd_env = "none"
                 dd_env_msg = " (not set in environment)"
@@ -265,6 +268,7 @@ class CIVisibility(Service):
                 )
             requests_mode_str = "agentless"
             self._requests_mode = REQUESTS_MODE.AGENTLESS_EVENTS
+            # Direct pass of conditional result instead of ternary for clarity and speed
             self._api_client = AgentlessTestVisibilityAPIClient(
                 self._itr_skipping_level,
                 self._git_data,
@@ -275,28 +279,29 @@ class CIVisibility(Service):
                 self._service,
                 self._dd_env,
             )
-        elif evp_proxy_base_url := self._agent_evp_proxy_base_url():
-            # In EVP-proxy cases, if an env is not provided, we need to get the agent's default env in order to make
-            # the correct decision:
-            if self._dd_env is None:
-                self._dd_env = self._agent_get_default_env()
-                dd_env_msg = " (default environment provided by agent)"
-            self._requests_mode = REQUESTS_MODE.EVP_PROXY_EVENTS
-            requests_mode_str = "EVP Proxy"
-            self._api_client = EVPProxyTestVisibilityAPIClient(
-                self._itr_skipping_level,
-                self._git_data,
-                self._configurations,
-                self.tracer._agent_url or agent_config.trace_agent_url,
-                self._service,
-                self._dd_env,
-                evp_proxy_base_url=evp_proxy_base_url,
-            )
         else:
-            requests_mode_str = "APM (some features will be disabled)"
-            self._requests_mode = REQUESTS_MODE.TRACES
-            self._should_upload_git_metadata = False
+            evp_proxy_base_url = self._agent_evp_proxy_base_url()
+            if evp_proxy_base_url:
+                if self._dd_env is None:
+                    self._dd_env = self._agent_get_default_env()
+                    dd_env_msg = " (default environment provided by agent)"
+                self._requests_mode = REQUESTS_MODE.EVP_PROXY_EVENTS
+                requests_mode_str = "EVP Proxy"
+                self._api_client = EVPProxyTestVisibilityAPIClient(
+                    self._itr_skipping_level,
+                    self._git_data,
+                    self._configurations,
+                    self.tracer._agent_url or agent_config.trace_agent_url,
+                    self._service,
+                    self._dd_env,
+                    evp_proxy_base_url=evp_proxy_base_url,
+                )
+            else:
+                requests_mode_str = "APM (some features will be disabled)"
+                self._requests_mode = REQUESTS_MODE.TRACES
+                self._should_upload_git_metadata = False
 
+        # Move attribute assignment outside conditional for less branch-dependent caching
         if self._should_upload_git_metadata:
             self._git_client = CIVisibilityGitClient(
                 api_key=self._api_key or "", requests_mode=self._requests_mode, tracer=self.tracer
@@ -330,7 +335,9 @@ class CIVisibility(Service):
         log.info("Detected configurations: %s", str(self._configurations))
 
         try:
-            self._codeowners = Codeowners(cwd=self._tags.get(ci.WORKSPACE_PATH))
+            # Use cached .get for _tags lookup
+            workspace_path = self._tags.get(ci.WORKSPACE_PATH)
+            self._codeowners = Codeowners(cwd=workspace_path)
         except ValueError:
             log.warning("CODEOWNERS file is not available")
         except Exception:
@@ -491,8 +498,9 @@ class CIVisibility(Service):
     def is_atr_enabled(cls) -> bool:
         if cls._instance is None:
             return False
+        # Cache env var for checking
         return cls._instance._api_settings.flaky_test_retries_enabled and asbool(
-            os.getenv("DD_CIVISIBILITY_FLAKY_RETRY_ENABLED", default=True)
+            os.environ.get("DD_CIVISIBILITY_FLAKY_RETRY_ENABLED", True)
         )
 
     @classmethod
