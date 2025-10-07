@@ -75,70 +75,86 @@ def _instrument_all_lines_with_monitoring(
     current_import_name: t.Optional[str] = None
     current_import_package: t.Optional[str] = None
 
+    # Precompute package split if needed
+    _package_split = package.split(".") if package is not None else None
+
     line = 0
 
+    # Improve perf: use local variables for speed in tight loop
+    # (Keep code style and names per policy)
     ext: list[bytes] = []
-    code_iter = iter(enumerate(code.co_code))
-    try:
-        while True:
-            offset, opcode = next(code_iter)
-            _, arg = next(code_iter)
+    co_code = code.co_code
+    co_names = code.co_names
+    co_consts = code.co_consts
+    co_name = code.co_name
 
-            if opcode == RESUME:
-                continue
+    # Loop over code.co_code two bytes at a time for opcode/arg
+    code_len = len(co_code)
+    offset = 0
+    while offset < code_len:
+        opcode = co_code[offset]
+        arg = co_code[offset + 1]
+        this_offset = offset
+        offset += 2
 
-            if offset in linestarts:
-                line = linestarts[offset]
-                lines.add(line)
+        if opcode == RESUME:
+            continue
 
-                # Make sure that the current module is marked as depending on its own package by instrumenting the
-                # first executable line
-                if code.co_name == "<module>" and len(lines) == 1 and package is not None:
-                    import_names[line] = (package, ("",))
+        if this_offset in linestarts:
+            line = linestarts[this_offset]
+            lines.add(line)
 
-            if opcode is EXTENDED_ARG:
-                ext.append(arg)
-                continue
-            else:
-                _previous_previous_arg = previous_arg
-                previous_arg = current_arg
-                current_arg = int.from_bytes([*ext, arg], "big", signed=False)
+            # Make sure that the current module is marked as depending on its own package by instrumenting the
+            # first executable line
+            if co_name == "<module>" and len(lines) == 1 and package is not None:
+                import_names[line] = (package, ("",))
+
+        if opcode is EXTENDED_ARG:
+            ext.append(arg)
+            continue
+        else:
+            _previous_previous_arg = previous_arg
+            previous_arg = current_arg
+            if ext:
+                # Fast-path without allocation for common case (single EXTENDED_ARG)
+                ext_bytes = bytes(ext) + bytes([arg])
+                current_arg = int.from_bytes(ext_bytes, "big", signed=False)
                 ext.clear()
+            else:
+                current_arg = arg
 
-            if opcode == IMPORT_NAME:
-                import_depth: int = code.co_consts[_previous_previous_arg]
-                current_import_name: str = code.co_names[current_arg]
-                # Adjust package name if the import is relative and a parent (ie: if depth is more than 1)
-                current_import_package: str = (
-                    ".".join(package.split(".")[: -import_depth + 1]) if import_depth > 1 else package
+        if opcode == IMPORT_NAME:
+            import_depth: int = co_consts[_previous_previous_arg]
+            current_import_name: str = co_names[current_arg]
+            # Adjust package name if the import is relative and a parent (ie: if depth is more than 1)
+            if import_depth > 1:
+                # It is much faster to slice precomputed list than split each time.
+                current_import_package = ".".join(_package_split[: -import_depth + 1])
+            else:
+                current_import_package = package
+
+            if line in import_names:
+                import_names[line] = (
+                    current_import_package,
+                    tuple(list(import_names[line][1]) + [current_import_name]),
                 )
+            else:
+                import_names[line] = (current_import_package, (current_import_name,))
 
-                if line in import_names:
-                    import_names[line] = (
-                        current_import_package,
-                        tuple(list(import_names[line][1]) + [current_import_name]),
-                    )
-                else:
-                    import_names[line] = (current_import_package, (current_import_name,))
-
-            # Also track import from statements since it's possible that the "from" target is a module, eg:
-            # from my_package import my_module
-            # Since the package has not changed, we simply extend the previous import names with the new value
-            if opcode == IMPORT_FROM:
-                import_from_name = f"{current_import_name}.{code.co_names[current_arg]}"
-                if line in import_names:
-                    import_names[line] = (
-                        current_import_package,
-                        tuple(list(import_names[line][1]) + [import_from_name]),
-                    )
-                else:
-                    import_names[line] = (current_import_package, (import_from_name,))
-
-    except StopIteration:
-        pass
+        if opcode == IMPORT_FROM:
+            import_from_name = f"{current_import_name}.{co_names[current_arg]}"
+            if line in import_names:
+                import_names[line] = (
+                    current_import_package,
+                    tuple(list(import_names[line][1]) + [import_from_name]),
+                )
+            else:
+                import_names[line] = (current_import_package, (import_from_name,))
 
     # Recursively instrument nested code objects
-    for nested_code in (_ for _ in code.co_consts if isinstance(_, CodeType)):
+    # Reduce overhead by using list comprehension and updating lines in one pass
+    nested_code_objs = [c for c in co_consts if isinstance(c, CodeType)]
+    for nested_code in nested_code_objs:
         _, nested_lines = instrument_all_lines(nested_code, hook, path, package)
         lines.update(nested_lines)
 
@@ -147,7 +163,7 @@ def _instrument_all_lines_with_monitoring(
 
     # Special case for empty modules (eg: __init__.py ):
     # Make sure line 0 is marked as executable, and add package dependency
-    if not lines and code.co_name == "<module>" and code.co_code == EMPTY_MODULE_BYTES:
+    if not lines and co_name == "<module>" and co_code == EMPTY_MODULE_BYTES:
         lines.add(0)
         if package is not None:
             import_names[0] = (package, ("",))
