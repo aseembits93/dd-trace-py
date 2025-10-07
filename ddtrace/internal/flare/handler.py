@@ -91,16 +91,22 @@ def _generate_tracer_flare(flare: Flare, configs: List[Any]) -> bool:
         # AGENT_TASK is currently being used for multiple purposes
         # We only want to generate the tracer flare if the task_type is
         # 'tracer_flare'
-        if not isinstance(c, dict):
-            log.debug("Config item is not type dict, received type %s instead. Skipping...", str(type(c)))
-            continue
-        if c.get("task_type") != "tracer_flare":
+        if type(c) is not dict:
+            # Avoid str(type(c)) construction if not logging, short-circuit with type check
             log.debug(
-                "Config item does not have the expected task_type. Expected [tracer_flare], received [%s]. Skipping...",
-                c.get("task_type"),
+                "Config item is not type dict, received type %s instead. Skipping...", type(c).__name__
             )
             continue
-        args = c.get("args", {})
+        task_type = c.get("task_type")
+        if task_type != "tracer_flare":
+            log.debug(
+                "Config item does not have the expected task_type. Expected [tracer_flare], received [%s]. Skipping...",
+                task_type,
+            )
+            continue
+        args = c.get("args")
+        if args is None:
+            args = {}
         uuid = c.get("uuid")
         if not uuid:
             log.warning("AGENT_TASK config missing UUID, skipping tracer flare")
@@ -111,7 +117,6 @@ def _generate_tracer_flare(flare: Flare, configs: List[Any]) -> bool:
         )
 
         flare.revert_configs()
-
         flare.send(flare_request)
         return True
     return False
