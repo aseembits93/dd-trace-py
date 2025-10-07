@@ -24,20 +24,28 @@ class APMCapabilities(enum.IntFlag):
 
 
 def config_key(payload: Payload) -> int:
-    content = t.cast(dict, payload.content)
+    # Direct attribute access avoids t.cast overhead and speeds up access
+    content: dict = payload.content
 
-    service_target = t.cast(t.Optional[dict], content.get("service_target"))
-    service = t.cast(str, service_target.get("service")) if service_target is not None else None
-    env = t.cast(str, service_target.get("env")) if service_target is not None else None
-    cluster_target = t.cast(t.Optional[dict], content.get("k8s_target_v2"))
+    # Minimize cast() calls: Only cast if absolutely necessary for type checking, otherwise access directly
+    service_target = content.get("service_target")
+    if service_target is not None:
+        # Local variables for dict avoids repeat lookups
+        service = service_target.get("service")
+        env = service_target.get("env")
+    else:
+        service = None
+        env = None
 
-    # Precedence ordering goes from most specific to least specific:
-    # 1. Service, 2. Env, 3. Cluster target, 4. Wildcard `*`
-    return (
-        ((service is not None and service != "*") << 2)
-        | ((env is not None and env != "*") << 1)
-        | (cluster_target is not None) << 0
-    )
+    cluster_target = content.get("k8s_target_v2")
+
+    # Fast local boolean variables instead of inline logical statements
+    has_service = service is not None and service != "*"
+    has_env = env is not None and env != "*"
+    has_cluster = cluster_target is not None
+
+    # Use fast bitwise operations for result
+    return (has_service << 2) | (has_env << 1) | has_cluster
 
 
 class APMTracingAdapter(PubSub):
