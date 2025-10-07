@@ -809,11 +809,19 @@ class CIVisibility(Service):
 
     @classmethod
     def get_suite_by_id(cls, suite_id: TestSuiteId) -> TestVisibilitySuite:
-        if cls._instance is None:
+        # Optimization: avoid redundant lookups by directly accessing session and module
+        instance = cls._instance
+        if instance is None:
             error_msg = "CI Visibility is not enabled"
             log.warning(error_msg)
             raise CIVisibilityError(error_msg)
-        return cls.get_module_by_id(suite_id.parent_id).get_child_by_id(suite_id)
+        session = instance._session
+        if session is None:
+            error_msg = "No session exists"
+            log.warning(error_msg)
+            raise CIVisibilityError(error_msg)
+        module = session.get_child_by_id(suite_id.parent_id)
+        return module.get_child_by_id(suite_id)
 
     @classmethod
     def get_test_by_id(cls, test_id: TestId) -> TestVisibilityTest:
