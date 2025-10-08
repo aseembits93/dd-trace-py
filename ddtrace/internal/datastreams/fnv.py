@@ -20,19 +20,26 @@ else:
 
 
 def fnv(data, hval_init, fnv_prime, fnv_size):
-    # type: (bytes, int, int, int) -> int
     """
     Core FNV hash algorithm used in FNV0 and FNV1.
     """
     hval = hval_init
-    for byte in data:
-        hval = (hval * fnv_prime) % fnv_size
-        hval = hval ^ _get_byte(byte)
-    return hval
+    # Optimization: Remove modulus inside the loop by masking at the end, since 2**64 is a power of two.
+    # This works because for all inputs, hval can safely wrap around naturally via & (fnv_size-1).
+    if fnv_size == 2**64:
+        mask = (1 << 64) - 1
+        for byte in data:
+            hval = (hval * fnv_prime) & mask
+            hval = hval ^ byte  # On Python 3, 'data' is bytes and byte is an int (0..255)
+        return hval
+    else:
+        for byte in data:
+            hval = (hval * fnv_prime) % fnv_size
+            hval = hval ^ byte
+        return hval
 
 
 def fnv1_64(data):
-    # type: (bytes) -> int
     """
     Returns the 64 bit FNV-1 hash value for the given data.
     """
