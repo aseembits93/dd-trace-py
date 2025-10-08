@@ -54,7 +54,7 @@ def cloud_faas_operation_v0(v0_operation, cloud_provider=None, cloud_service=Non
 
 
 def cloud_faas_operation_v1(v0_operation, cloud_provider=None, cloud_service=None):
-    return "{}.{}.invoke".format(cloud_provider, cloud_service)
+    return f"{cloud_provider}.{cloud_service}.invoke"
 
 
 def cloud_messaging_operation_v0(v0_operation, cloud_provider=None, cloud_service=None, direction=None):
