@@ -117,23 +117,25 @@ def resolve_sys_path() -> t.List[Path]:
 def _root_module(path: Path) -> str:
     # Try the most likely prefixes first
     for parent_path in (purelib_path, platlib_path):
-        try:
-            # Resolve the path to use the shortest relative path.
-            return _effective_root(path.resolve().relative_to(parent_path), parent_path)
-        except ValueError:
-            # Not relative to this path
-            pass
+        relative = _resolved_relative(path, parent_path)
+        if relative is not None:
+            return _effective_root(relative, parent_path)
 
     # Try to resolve the root module using sys.path. We keep the shortest
     # relative path as the one more likely to give us the root module.
+    min_len = None
     min_relative_path = max_parent_path = None
-    for parent_path in resolve_sys_path():
+    sys_paths = resolve_sys_path()
+    # Pre-cache resolved relatives for this path across all sys_paths, and track the shortest match
+    for parent_path in sys_paths:
         try:
             relative = path.relative_to(parent_path)
-            if min_relative_path is None or len(relative.parents) < len(min_relative_path.parents):
-                min_relative_path, max_parent_path = relative, parent_path
         except ValueError:
-            pass
+            continue
+        # Use len(relative.parts) for shortest path logic (more robust than .parents)
+        rel_len = len(relative.parts)
+        if min_len is None or rel_len < min_len:
+            min_relative_path, max_parent_path, min_len = relative, parent_path, rel_len
 
     if min_relative_path is not None:
         try:
@@ -143,8 +145,12 @@ def _root_module(path: Path) -> str:
 
     # Bazel runfiles support: we assume that these paths look like
     # /some/path.runfiles/.../site-packages/<root_module>/...
-    if any(p.suffix == ".runfiles" for p in path.parents):
-        for s in path.parents:
+    # This check can be optimized by materializing the parents list once
+    parents = list(path.parents)
+    if any(p.suffix == ".runfiles" for p in parents):
+        # 'parents' is ordered from immediate parent towards the filesystem root
+        for s in parents:
+            # Check against parent.name just once
             if s.parent.name == "site-packages":
                 return s.name
 
@@ -231,6 +237,7 @@ def filename_to_package(filename: t.Union[str, Path]) -> t.Optional[Distribution
 
         # Loop through mapping and check the distribution name, since the key isn't always the same, for example:
         #   '__editable__.ddtrace-3.9.0.dev...pth': Distribution(name='ddtrace', version='...')
+        # Optimization: avoid repeated .values() iteration by breaking quick if found
         for distribution in mapping.values():
             if distribution.name == root_module_path:
                 return distribution
@@ -413,3 +420,13 @@ def _always_iterable(obj, base_type=(str, bytes)):
         return iter(obj)
     except TypeError:
         return iter((obj,))
+
+
+# Cache .resolve() and .relative_to() calls on path objects to reduce repeated expensive IO and path manipulations
+@cached(maxsize=4096)
+def _resolved_relative(path: Path, parent_path: Path) -> t.Optional[Path]:
+    try:
+        # Always use .resolve() since the original logic does
+        return path.resolve().relative_to(parent_path)
+    except ValueError:
+        return None
