@@ -217,7 +217,10 @@ class CIVisibilityEncoderV01(BufferedEncoder):
         """
         Remove trace/span/parent IDs if non-test event, move session/module/suite IDs from meta to outer content layer.
         """
-        if sp["meta"].get(EVENT_TYPE) in [SESSION_TYPE, MODULE_TYPE, SUITE_TYPE]:
+        meta = sp["meta"]
+        event_type = meta.get(EVENT_TYPE)
+        
+        if event_type in [SESSION_TYPE, MODULE_TYPE, SUITE_TYPE]:
             del sp["trace_id"]
             del sp["span_id"]
             del sp["parent_id"]
@@ -225,26 +228,26 @@ class CIVisibilityEncoderV01(BufferedEncoder):
             sp["trace_id"] = int(sp.get("trace_id") or "1")
             sp["parent_id"] = int(sp.get("parent_id") or "1")
             sp["span_id"] = int(sp.get("span_id") or "1")
-        if sp["meta"].get(EVENT_TYPE) in [SESSION_TYPE, MODULE_TYPE, SUITE_TYPE, SpanTypes.TEST]:
-            test_session_id = new_parent_session_span_id or sp["meta"].get(SESSION_ID)
+        if event_type in [SESSION_TYPE, MODULE_TYPE, SUITE_TYPE, SpanTypes.TEST]:
+            test_session_id = new_parent_session_span_id or meta.get(SESSION_ID)
             if test_session_id:
                 sp[SESSION_ID] = int(test_session_id)
-                del sp["meta"][SESSION_ID]
-        if sp["meta"].get(EVENT_TYPE) in [MODULE_TYPE, SUITE_TYPE, SpanTypes.TEST]:
-            test_module_id = sp["meta"].get(MODULE_ID)
+                del meta[SESSION_ID]
+        if event_type in [MODULE_TYPE, SUITE_TYPE, SpanTypes.TEST]:
+            test_module_id = meta.get(MODULE_ID)
             if test_module_id:
                 sp[MODULE_ID] = int(test_module_id)
-                del sp["meta"][MODULE_ID]
-        if sp["meta"].get(EVENT_TYPE) in [SUITE_TYPE, SpanTypes.TEST]:
-            test_suite_id = sp["meta"].get(SUITE_ID)
+                del meta[MODULE_ID]
+        if event_type in [SUITE_TYPE, SpanTypes.TEST]:
+            test_suite_id = meta.get(SUITE_ID)
             if test_suite_id:
                 sp[SUITE_ID] = int(test_suite_id)
-                del sp["meta"][SUITE_ID]
-        if COVERAGE_TAG_NAME in sp["meta"]:
-            del sp["meta"][COVERAGE_TAG_NAME]
-        if ITR_CORRELATION_ID_TAG_NAME in sp["meta"]:
-            sp[ITR_CORRELATION_ID_TAG_NAME] = sp["meta"][ITR_CORRELATION_ID_TAG_NAME]
-            del sp["meta"][ITR_CORRELATION_ID_TAG_NAME]
+                del meta[SUITE_ID]
+        if COVERAGE_TAG_NAME in meta:
+            del meta[COVERAGE_TAG_NAME]
+        if ITR_CORRELATION_ID_TAG_NAME in meta:
+            sp[ITR_CORRELATION_ID_TAG_NAME] = meta[ITR_CORRELATION_ID_TAG_NAME]
+            del meta[ITR_CORRELATION_ID_TAG_NAME]
         return sp
 
 
