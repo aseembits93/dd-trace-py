@@ -22,9 +22,17 @@ ast_cache: t.Dict[str, t.Any] = {}
 def _get_relative_path_strings(executable_lines, workspace_path: Path) -> t.Dict[str, str]:
     relative_path_strs: t.Dict[str, str] = {}
 
+    workspace_parts = workspace_path.parts
+    workspace_len = len(workspace_parts)
+
     for path in executable_lines:
         path_obj = Path(path)
-        path_str = str(path_obj.relative_to(workspace_path) if path_obj.is_relative_to(workspace_path) else path_obj)
+        path_parts = path_obj.parts
+
+        if path_parts[:workspace_len] == workspace_parts:
+            path_str = str(Path(*path_parts[workspace_len:]))
+        else:
+            path_str = str(path_obj)
         relative_path_strs[path] = path_str
 
     return relative_path_strs
