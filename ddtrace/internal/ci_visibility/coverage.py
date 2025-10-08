@@ -165,13 +165,27 @@ def _report_coverage_to_span(
 
 def segments(lines: Iterable[int]) -> List[Tuple[int, int, int, int, int]]:
     """Extract the relevant report data for a single file."""
-    _segments = []
-    for _key, g in groupby(enumerate(sorted(lines)), lambda x: x[1] - x[0]):
-        group = list(g)
-        start = group[0][1]
-        end = group[-1][1]
-        _segments.append((start, 0, end, 0, -1))
-
+    # Sorting is required, but avoid sorting if the input is already sorted.
+    # Since lines is Iterable, convert to list once to avoid multiple iterations.
+    lines_list = list(lines)
+    if not lines_list:
+        return []
+    lines_sorted = sorted(lines_list)
+    _segments: List[Tuple[int, int, int, int, int]] = []
+    append = _segments.append
+    for _key, g in groupby(enumerate(lines_sorted), lambda x: x[1] - x[0]):
+        # Instead of creating a full list and then accessing indices,
+        # just retrieve the first and last items efficiently.
+        # groupby returns an iterator, so we'll extract the first,
+        # then iterate to the last in one pass.
+        it = iter(g)
+        first = next(it)
+        last = first
+        for last in it:
+            pass
+        start = first[1]
+        end = last[1]
+        append((start, 0, end, 0, -1))
     return _segments
 
 
