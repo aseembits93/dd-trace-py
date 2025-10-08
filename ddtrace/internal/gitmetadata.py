@@ -37,7 +37,6 @@ config = GitMetadataConfig()
 
 
 def _get_tags_from_env():
-    # type: () -> typing.Tuple[str, str, str]
     """
     Get git metadata from environment variables.
     Returns tuple (repository_url, commit_sha, main_package)
@@ -46,15 +45,22 @@ def _get_tags_from_env():
     commit_sha = config.commit_sha
     main_package = config.main_package
 
-    # Previously, the repository URL and commit SHA were derived from the DD_TAGS environment variable.
-    # This approach was for backward compatibility before the introduction of DD_GIT_REPOSITORY_URL
-    # and DD_GIT_COMMIT_SHA environment variables.
-    tags = formats.parse_tags_str(config.tags)
+    # Avoid unnecessarily parsing tags if not needed
+    need_tags = not repository_url or not commit_sha
+    tags = formats.parse_tags_str(config.tags) if need_tags else None
+
     if not repository_url:
         repository_url = tags.get(REPOSITORY_URL, "")
     if not commit_sha:
         commit_sha = tags.get(COMMIT_SHA, "")
-    filtered_git_url = _filter_sensitive_info(repository_url)
+
+    # Minimize expensive sensitive info filtering
+    # _filter_sensitive_info might be slow, so only call if repo URL is non-empty
+    if repository_url:
+        filtered_git_url = _filter_sensitive_info(repository_url)
+    else:
+        filtered_git_url = repository_url
+
     if type(filtered_git_url) != str:
         return "", commit_sha, main_package
     return filtered_git_url, commit_sha, main_package
