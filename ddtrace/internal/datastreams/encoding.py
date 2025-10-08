@@ -34,12 +34,19 @@ def decode_var_uint_64(b):
     # type: (bytes) -> Tuple[int, bytes]
     x = 0
     s = 0
-    for i in range(0, MAX_VAR_LEN_64):
-        if len(b) <= i:
+    b_len = len(b)
+    # Avoid repeated len() calls by caching the length
+    # Use a while loop to avoid range() overhead and slicing only once
+    i = 0
+    while i < MAX_VAR_LEN_64:
+        if i >= b_len:
             raise EOFError()
         n = _get_byte(b[i])
+        # Short-circuit return when decoding last byte or when continuation bit is not set
         if n < 0x80 or i == MAX_VAR_LEN_64 - 1:
-            return x | n << s, b[i + 1 :]
+            # x | n << s is equivalent to x | (n << s)
+            return x | (n << s), b[i + 1 :]
         x |= (n & 0x7F) << s
         s += 7
+        i += 1
     raise EOFError
