@@ -117,7 +117,9 @@ def origin(module: ModuleType) -> t.Optional[Path]:
     except AttributeError:
         try:
             # DEV: Use object.__getattribute__ to avoid potential side-effects.
-            orig = Path(object.__getattribute__(module, "__file__")).resolve()
+            file_path = object.__getattribute__(module, "__file__")
+            orig = Path(file_path)
+            orig = orig if orig.is_absolute() else orig.resolve()
         except (AttributeError, TypeError):
             # Module is probably only partially initialised, so we look at its
             # spec instead
