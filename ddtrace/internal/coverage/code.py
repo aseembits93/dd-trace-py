@@ -250,9 +250,10 @@ class ModuleCodeCollector(ModuleWatchdog):
 
     @classmethod
     def start_coverage(cls):
-        if cls._instance is None:
+        instance = cls._instance
+        if instance is None:
             return
-        cls._instance._coverage_enabled = True
+        instance._coverage_enabled = True
 
     @classmethod
     def stop_coverage(cls):
