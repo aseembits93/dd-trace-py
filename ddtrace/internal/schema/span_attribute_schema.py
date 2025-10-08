@@ -46,7 +46,7 @@ def cloud_api_operation_v0(v0_operation, cloud_provider=None, cloud_service=None
 
 
 def cloud_api_operation_v1(v0_operation, cloud_provider=None, cloud_service=None):
-    return "{}.{}.request".format(cloud_provider, cloud_service)
+    return f"{cloud_provider}.{cloud_service}.request"
 
 
 def cloud_faas_operation_v0(v0_operation, cloud_provider=None, cloud_service=None):
