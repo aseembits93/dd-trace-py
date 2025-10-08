@@ -11,6 +11,13 @@ from ..fnv import fnv1_64
 from .schema import Schema
 from .schema_iterator import SchemaIterator
 
+_KEY_CONVERT_MAP = {
+    "ref": "$ref",
+    "enum_values": "enum",
+    "_property": "property",
+    "_id": "id",
+}
+
 
 class SchemaBuilder:
     max_depth = 10
@@ -79,9 +86,10 @@ class OpenApiSchema:
 
 
 def convert_to_json_compatible(obj: Any) -> Any:
-    if isinstance(obj, list):
+    obj_type = type(obj)
+    if obj_type is list:
         return [convert_to_json_compatible(item) for item in obj if item is not None]
-    elif isinstance(obj, dict):
+    elif obj_type is dict:
         return {convert_key(k): convert_to_json_compatible(v) for k, v in obj.items() if v is not None}
     elif hasattr(obj, "__dataclass_fields__"):
         return {convert_key(k): convert_to_json_compatible(v) for k, v in asdict(obj).items() if v is not None}
@@ -89,12 +97,4 @@ def convert_to_json_compatible(obj: Any) -> Any:
 
 
 def convert_key(key: str) -> str:
-    if key == "ref":
-        return "$ref"
-    elif key == "enum_values":
-        return "enum"
-    elif key == "_property":
-        return "property"
-    elif key == "_id":
-        return "id"
-    return key
+    return _KEY_CONVERT_MAP.get(key, key)
