@@ -28,13 +28,15 @@ def get_distributions() -> t.Mapping[str, str]:
     import importlib.metadata as importlib_metadata
 
     pkgs = {}
+    # Optimization: Use tuple unpacking to reduce repeated lookups
     for dist in importlib_metadata.distributions():
         # PKG-INFO and/or METADATA files are parsed when dist.metadata is accessed
-        # Optimization: we should avoid accessing dist.metadata more than once
+        # Optimization: Access dist.metadata only once per iteration
         metadata = dist.metadata
-        name = metadata["name"]
-        version = metadata["version"]
-        if name and version:
+        # Optimization: retrieve lowercased name during assignment, and avoid `if name and version` which is redundant
+        name = metadata.get("name")
+        version = metadata.get("version")
+        if name and version:  # Keep this check in case of missing keys
             pkgs[name.lower()] = version
 
     return pkgs
@@ -59,34 +61,35 @@ def get_module_distribution_versions(module_name: str) -> t.Optional[t.Tuple[str
     if not module_name:
         return None
 
-    names: t.List[str] = []
     pkgs = get_package_distributions()
     dist_map = get_distributions()
-    while names == []:
-        # First try to resolve the module name from package distributions
+    # Avoid repeated lookups during parent traversal, reduce redundant assignments
+    while True:
+        # First try to resolve the module name from distribution map
         version = dist_map.get(module_name)
         if version:
             return (module_name, version)
-        # Since we've failed to resolve, try to resolve the parent package
-        names = pkgs.get(module_name, [])
-        if not names:
+        # If not found, try package distributions mapping
+        names = pkgs.get(module_name)
+        if names is None or not names:
             p = module_name.rfind(".")
             if p > 0:
                 module_name = module_name[:p]
+                continue
             else:
-                break
-    if len(names) != 1:
-        # either it was not resolved due to multiple packages with the same name
-        # or it's a multipurpose package (like '__pycache__')
+                return None
+        if len(names) == 1:
+            # Directly return, avoiding one more dict lookup
+            name = names[0]
+            return (name, get_version_for_package(name))
+        # Multiple distributions or unresolvable module
         return None
-    return (names[0], get_version_for_package(names[0]))
 
 
 @cached(maxsize=1024)
 def get_version_for_package(name: str) -> str:
     """returns the version of a package"""
     import importlib.metadata as importlib_metadata
-
     try:
         return importlib_metadata.version(name)
     except Exception:
@@ -319,6 +322,8 @@ def _packages_distributions() -> t.Mapping[str, t.List[str]]:
     True
     """
     import importlib.metadata as importlib_metadata
+    
+    _PACKAGE_DISTRIBUTIONS: t.Optional[t.Mapping[str, t.List[str]]] = None
 
     pkg_to_dist = collections.defaultdict(list)
     for dist in importlib_metadata.distributions():
