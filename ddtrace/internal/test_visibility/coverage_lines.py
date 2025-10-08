@@ -36,7 +36,7 @@ class CoverageLines:
         return f"CoverageLines(num_lines={self._num_lines()})"
 
     def _num_lines(self) -> int:
-        return sum(_bit_count(byte) for byte in self._lines)
+        return sum(map(_bit_count, self._lines))
 
     def add(self, line_number: int):
         lines_byte = line_number // 8
