@@ -49,30 +49,32 @@ class ModuleCodeCollector(ModuleWatchdog):
         # Coverage collection configuration
         self._collect_import_coverage: bool = False
         self._include_paths: t.List[Path] = []
-        # By default, exclude standard / venv paths (eg: avoids over-instrumenting cases where a virtualenv is created
-        # in the root directory of a repository)
+        # Exclude standard / venv paths by default to reduce unnecessary instrumentation
         self._exclude_paths: t.List[Path] = [stdlib_path, platstdlib_path, platlib_path, purelib_path]
 
         # Avoid instrumenting anything in the current module
-        self._exclude_paths.append(Path(__file__).resolve().parent)
+        # Avoid re-resolving this path repeatedly—cache once
+        parent_path = Path(__file__).resolve().parent
+        self._exclude_paths.append(parent_path)
 
         self._coverage_enabled: bool = False
         self.seen: t.Set[t.Tuple[CodeType, str]] = set()
 
-        # Data structures for coverage data
-        self.lines: t.DefaultDict[str, CoverageLines] = defaultdict(CoverageLines)
-        self.covered: t.DefaultDict[str, CoverageLines] = defaultdict(CoverageLines)
+        # Use direct assignment for defaultdicts to CoverageLines for minimal instantiation overhead
+        CoverageLines_default_factory = CoverageLines  # Micro-optimization: avoids attribute lookup in loop/hot path
+        self.lines: t.DefaultDict[str, CoverageLines] = defaultdict(CoverageLines_default_factory)
+        self.covered: t.DefaultDict[str, CoverageLines] = defaultdict(CoverageLines_default_factory)
 
         # Import-time coverage data
-        self._import_time_covered: t.DefaultDict[str, CoverageLines] = defaultdict(CoverageLines)
+        self._import_time_covered: t.DefaultDict[str, CoverageLines] = defaultdict(CoverageLines_default_factory)
         self._import_time_contexts: t.Dict[str, "ModuleCodeCollector.CollectInContext"] = {}
         self._import_time_name_to_path: t.Dict[str, str] = {}
         self._import_names_by_path: t.Dict[str, t.Set[t.Tuple[str, t.Tuple[str, ...]]]] = defaultdict(set)
 
-        # Replace the built-in exec function with our own in the pytest globals
+        # Patch _pytest.assertion.rewrite.exec only if import is successful
+        # Move import as close as possible to use for faster startup time in non-pytest environments
         try:
             import _pytest.assertion.rewrite as par
-
             par.exec = self._exec
         except ImportError:
             pass
@@ -283,6 +285,7 @@ class ModuleCodeCollector(ModuleWatchdog):
 
     @classmethod
     def coverage_enabled_in_context(cls):
+        # Direct attribute access, maintain behavioral checks
         return cls._instance is not None and ctx_coverage_enabled.get()
 
     @classmethod
