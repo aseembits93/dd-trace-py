@@ -23,15 +23,7 @@ from ddtrace.trace import tracer as ddtracer
 
 
 if TYPE_CHECKING:
-    from typing import Mapping  # noqa:F401
-    from typing import Optional  # noqa:F401
-    from typing import Union  # noqa:F401
-
-    from opentelemetry.util.types import Attributes  # noqa:F401
-    from opentelemetry.util.types import AttributeValue  # noqa:F401
-
-    from ddtrace._trace.span import Span as DDSpan  # noqa:F401
-    from ddtrace.internal.compat import NumericType  # noqa:F401
+    pass
 
 
 log = get_logger(__name__)
@@ -199,9 +191,10 @@ class Span(OtelSpan):
     def update_name(self, name):
         # type: (str) -> None
         """Updates the name of a span"""
-        if not self.is_recording():
+        ddspan = self._ddspan
+        if ddspan.finished:
             return
-        self._ddspan.resource = name
+        ddspan.resource = name
 
     def is_recording(self):
         # type: () -> bool
