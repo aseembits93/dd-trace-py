@@ -38,7 +38,7 @@ def cache_operation_v0(v0_operation, cache_provider=None):
 
 def cache_operation_v1(v0_operation, cache_provider=None):
     operation = "command"
-    return "{}.{}".format(cache_provider, operation)
+    return f"{cache_provider}.{operation}"
 
 
 def cloud_api_operation_v0(v0_operation, cloud_provider=None, cloud_service=None):
