@@ -132,18 +132,63 @@ class JSONEncoderV2(JSONEncoder):
 
     def encode_traces(self, traces):
         # type: (List[List[Span]]) -> str
-        normalized_traces = [[JSONEncoderV2._convert_span(span) for span in trace] for trace in traces]
+        normalized_traces = []
+        append_normalized = normalized_traces.append
+
+        _convert_span = JSONEncoderV2._convert_span
+        for trace in traces:
+            normalized_trace = [_convert_span(span) for span in trace]
+            append_normalized(normalized_trace)
         return self.encode({"traces": normalized_traces})[0]
 
     @staticmethod
     def _convert_span(span):
         # type: (Span) -> Dict[str, Any]
-        sp = JSONEncoderV2._span_to_dict(span)
-        sp = JSONEncoderV2._normalize_span(sp)
-        sp["trace_id"] = JSONEncoderV2._encode_id_to_hex(sp.get("trace_id"))
-        sp["parent_id"] = JSONEncoderV2._encode_id_to_hex(sp.get("parent_id"))
-        sp["span_id"] = JSONEncoderV2._encode_id_to_hex(sp.get("span_id"))
-        return sp
+        # Inline _span_to_dict and _normalize_span for reduced attribute lookups and function calls
+        s = span
+        d = {
+            "trace_id": s._trace_id_64bits,
+            "parent_id": s.parent_id,
+            "span_id": s.span_id,
+            "service": s.service,
+            "resource": s.resource,
+            "name": s.name,
+            "error": s.error,
+        }
+
+        err = d["error"]
+        if err and type(err) == bool:
+            d["error"] = 1
+
+        # New local vars for faster lookup
+        if s.start_ns:
+            d["start"] = s.start_ns
+        if s.duration_ns:
+            d["duration"] = s.duration_ns
+        if s._meta:
+            d["meta"] = s._meta
+        if s._metrics:
+            d["metrics"] = s._metrics
+        if s.span_type:
+            d["type"] = s.span_type
+        if s._links:
+            d["span_links"] = [link.to_dict() for link in s._links]
+        # agent_config.trace_native_span_events check bypassed for inlining; performance: minor, preserve style
+        if s._events and getattr(__import__("ddtrace.settings._agent", fromlist=["config"]), "config", None) and getattr(__import__("ddtrace.settings._agent", fromlist=["config"]), "config").trace_native_span_events:
+            d["span_events"] = [dict(event) for event in s._events]
+
+        # Normalize string attrs using fast path
+        _ns = JSONEncoder._normalize_str
+        d["resource"] = _ns(d["resource"])
+        d["name"] = _ns(d["name"])
+        d["service"] = _ns(d["service"])
+
+        # Use cached _encode_id_to_hex local for slight speedup
+        _id_hex = JSONEncoderV2._encode_id_to_hex
+        d["trace_id"] = _id_hex(d.get("trace_id"))
+        d["parent_id"] = _id_hex(d.get("parent_id"))
+        d["span_id"] = _id_hex(d.get("span_id"))
+        return d
 
     @staticmethod
     def _encode_id_to_hex(dd_id):
@@ -153,8 +198,10 @@ class JSONEncoderV2(JSONEncoder):
         return "%0.16X" % int(dd_id)
 
     def encode(self, obj):
+        # Avoid function call overhead in getting length
         res, _ = super().encode(obj)
-        return res, len(obj.get("traces", []))
+        t = obj.get("traces")
+        return res, len(t) if t is not None else 0
 
 
 MSGPACK_ENCODERS = {
