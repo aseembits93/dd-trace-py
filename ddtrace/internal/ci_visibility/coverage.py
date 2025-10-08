@@ -84,9 +84,10 @@ def _stop_coverage(module):
     # Experimental feature to use internal coverage collection
     if USE_DD_COVERAGE:
         return
-    if _module_has_dd_coverage_enabled(module):
-        module._dd_coverage.stop()
-        module._dd_coverage.erase()
+    if hasattr(module, "_dd_coverage"):
+        module_coverage = module._dd_coverage
+        module_coverage.stop()
+        module_coverage.erase()
         del module._dd_coverage
 
 
