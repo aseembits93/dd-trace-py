@@ -328,7 +328,8 @@ def _packages_distributions() -> t.Mapping[str, t.List[str]]:
 
 
 def _top_level_declared(dist):
-    return (dist.read_text("top_level.txt") or "").split()
+    text = dist.read_text("top_level.txt") or ""
+    return text.splitlines()
 
 
 def _topmost(name) -> t.Optional[str]:
