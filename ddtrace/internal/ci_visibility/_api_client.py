@@ -256,6 +256,7 @@ class _TestVisibilityAPIClientBase(abc.ABC):
         self._service: t.Optional[str] = dd_service
         self._dd_env: t.Optional[str] = dd_env
         self._timeout: float = timeout if timeout is not None else DEFAULT_TIMEOUT
+        self._final_headers = self._compute_final_headers()
 
     @abc.abstractmethod
     def _redact_headers(self) -> t.Dict[str, str]:
@@ -267,9 +268,7 @@ class _TestVisibilityAPIClientBase(abc.ABC):
         pass
 
     def _get_final_headers(self) -> t.Dict[str, str]:
-        headers = _BASE_HEADERS.copy()
-        headers.update(self._get_headers())
-        return headers
+        return self._final_headers
 
     def _do_request(self, method: str, endpoint: str, payload: str, timeout: t.Optional[float] = None) -> Response:
         timeout = timeout if timeout is not None else self._timeout
@@ -661,6 +660,11 @@ class _TestVisibilityAPIClientBase(abc.ABC):
         record_test_management_tests_count(len(test_properties))
 
         return test_properties
+
+    def _compute_final_headers(self) -> t.Dict[str, str]:
+        headers = _BASE_HEADERS.copy()
+        headers.update(self._get_headers())
+        return headers
 
 
 class AgentlessTestVisibilityAPIClient(_TestVisibilityAPIClientBase):
