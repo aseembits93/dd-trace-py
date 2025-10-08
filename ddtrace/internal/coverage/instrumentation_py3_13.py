@@ -6,6 +6,8 @@ import typing as t
 from ddtrace.internal.bytecode_injection import HookType
 from ddtrace.internal.test_visibility.coverage_lines import CoverageLines
 
+_COVERAGE_LINES_SINGLETON = CoverageLines()
+
 
 # This is primarily to make mypy happy without having to nest the rest of this module behind a version check
 assert sys.version_info >= (3, 13)  # nosec
@@ -20,4 +22,4 @@ EMPTY_MODULE_BYTES = bytes([RESUME, 0, RETURN_CONST, 0])
 
 def instrument_all_lines(code: CodeType, hook: HookType, path: str, package: str) -> t.Tuple[CodeType, CoverageLines]:
     # No-op
-    return code, CoverageLines()
+    return code, _COVERAGE_LINES_SINGLETON
