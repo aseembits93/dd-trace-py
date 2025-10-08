@@ -28,10 +28,8 @@ class CIContextProvider(DefaultContextProvider):
         _DD_CI_CONTEXTVAR.set(None)
 
     def _has_active_context(self):
-        # type: () -> bool
         """Returns whether there is an active context in the current execution."""
-        ctx = _DD_CI_CONTEXTVAR.get()
-        return ctx is not None
+        return _DD_CI_CONTEXTVAR.get() is not None
 
     def activate(self, ctx: ContextTypeValue) -> None:
         """Makes the given context active in the current execution."""
