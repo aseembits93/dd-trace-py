@@ -53,11 +53,11 @@ class CoverageLines:
         """Returns a sorted list of covered line numbers"""
         lines = []
         for idx, _byte in enumerate(self._lines):
-            for _bit in range(8):
-                # Producing a list of lines needs to account for the fact they are kept in a little-endian way
-                if _byte & (0b1000_0000 >> _bit):
-                    lines.append(idx * 8 + _bit)
-
+            if _byte:  # skip processing when byte==0
+                base = idx * 8
+                for _bit in range(8):
+                    if _byte & (0b1000_0000 >> _bit):
+                        lines.append(base + _bit)
         return lines
 
     def update(self, other: "CoverageLines"):
