@@ -713,9 +713,10 @@ class EVPProxyTestVisibilityAPIClient(_TestVisibilityAPIClientBase):
     ):
         base_url = combine_url_path(agent_url, evp_proxy_base_url)
         super().__init__(base_url, itr_skipping_level, git_data, configurations, dd_service, dd_env, timeout)
+        self._headers = {EVP_SUBDOMAIN_HEADER_NAME: EVP_SUBDOMAIN_HEADER_API_VALUE}
 
     def _get_headers(self):
-        return {EVP_SUBDOMAIN_HEADER_NAME: EVP_SUBDOMAIN_HEADER_API_VALUE}
+        return self._headers
 
     def _redact_headers(self) -> t.Dict[str, str]:
         """EVP proxy headers do not include authentication information"""
