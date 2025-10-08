@@ -515,7 +515,11 @@ class DsmPathwayCodec:
     @staticmethod
     def encode(ctx, carrier):
         # type: (DataStreamsCtx, dict) -> None
-        if not isinstance(ctx, DataStreamsCtx) or not ctx or not ctx.hash:
+        # Optimize branching by reducing number of checks
+        if (
+            type(ctx) is not DataStreamsCtx  # type check (avoid expensive isinstance for single class)
+            or not getattr(ctx, "hash", None)  # directly check ctx.hash existence and truthiness
+        ):
             return
         carrier[PROPAGATION_KEY_BASE_64] = ctx.encode_b64()
 
