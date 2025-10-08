@@ -61,6 +61,15 @@ if TYPE_CHECKING:  # pragma: no cover
 
     from .utils.http import ConnectionType  # noqa:F401
 
+_agent_env_set = any(
+    os.environ.get(name) is not None
+    for name in (
+        "DD_AGENT_HOST",
+        "DATADOG_TRACE_AGENT_HOSTNAME",
+        "DD_TRACE_AGENT_URL",
+    )
+)
+
 
 log = get_logger(__name__)
 
@@ -1083,20 +1092,20 @@ def _use_log_writer() -> bool:
     The LogWriter is required by default in AWS Lambdas when the Datadog Agent extension
     is not available in the Lambda.
     """
-    if (
-        os.environ.get("DD_AGENT_HOST")
-        or os.environ.get("DATADOG_TRACE_AGENT_HOSTNAME")
-        or os.environ.get("DD_TRACE_AGENT_URL")
-    ):
+    if _agent_env_set:
         # If one of these variables are set, we definitely have an agent
         return False
-    elif in_aws_lambda() and has_aws_lambda_agent_extension():
+    # Cache function results locally to avoid duplicated calls in potentially slow conditions
+    aws_lambda = in_aws_lambda()
+    if aws_lambda and has_aws_lambda_agent_extension():
         # If the Agent Lambda extension is available then an AgentWriter is used.
         return False
-    elif in_gcp_function() or in_azure_function():
+    # Check GCP/Azure, both are slow calls and mutually exclusive in proper serverless setups
+    gcp_fun = in_gcp_function()
+    if gcp_fun or in_azure_function():
         return False
     else:
-        return in_aws_lambda()
+        return aws_lambda
 
 
 def _use_sync_mode() -> bool:
