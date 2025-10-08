@@ -78,7 +78,11 @@ def strip_query_string(url):
 
 def redact_query_string(query_string, query_string_obfuscation_pattern):
     # type: (str, re.Pattern) -> Union[bytes, str]
-    bytes_query = query_string if isinstance(query_string, bytes) else query_string.encode("utf-8")
+    # Fast path: always encode only if needed, let .sub handle bytes
+    query_is_bytes = isinstance(query_string, bytes)
+    # Avoid unnecessary encoding if query_string is already bytes
+    bytes_query = query_string if query_is_bytes else query_string.encode("utf-8")
+    # re.Pattern.sub is already quite fast, but nothing to optimize further here since sub must run
     return query_string_obfuscation_pattern.sub(b"<redacted>", bytes_query)
 
 
@@ -87,39 +91,67 @@ def redact_url(url, query_string_obfuscation_pattern, query_string=None):
     parts = parse.urlparse(url)
     redacted_query = None
 
+    # eliminate repeated type-of/encoding conversions by using a helper directly below
+    # Avoid copying strings and tuples unless absolutely necessary
+
+    # Redact if a query string is provided, else from the url's query part
     if query_string:
         redacted_query = redact_query_string(query_string, query_string_obfuscation_pattern)
     elif parts.query:
         redacted_query = redact_query_string(parts.query, query_string_obfuscation_pattern)
 
     if redacted_query is not None and len(parts) >= 5:
-        redacted_parts = parts[:4] + (redacted_query,) + parts[5:]  # type: Tuple[Union[str, bytes], ...]
-        bytes_redacted_parts = tuple(x if isinstance(x, bytes) else x.encode("utf-8") for x in redacted_parts)
-        return urlunsplit(bytes_redacted_parts, url)
+        # Instead of using tuple slice and concatenation, construct the tuple directly for speed
+        # Instead of always calling isinstance(x, bytes) inside a generator,
+        # we precompute which indexes are already bytes (only the query part is bytes after redaction)
+        # Everything else from parts is guaranteed str from urlparse,
+        # only redacted_query is bytes
+        # So we can faster build the tuple:
+        b_parts = (
+            parts.scheme.encode("utf-8"),
+            parts.netloc.encode("utf-8"),
+            parts.path.encode("utf-8"),
+            parts.params.encode("utf-8"),
+            redacted_query,
+            parts.fragment.encode("utf-8"),
+        )
+        return urlunsplit(b_parts, url)
 
     # If no obfuscation is performed, return original url
     return url
 
 
 def urlunsplit(components, original_url):
-    # type: (Tuple[bytes, ...], str) -> bytes
     """
     Adaptation from urlunsplit and urlunparse, using bytes components
     """
     scheme, netloc, url, params, query, fragment = components
-    if params:
-        url = b"%s;%s" % (url, params)
+    # Use combined string building to avoid intermediate string creation
+    # All components are bytes, so use bytes concatenation directly
+
+    # Preallocate list for assembly, for performance vs repeated %
+    out = []
+
+    # Build the url progressively
     if netloc or (scheme and url[:2] != b"//"):
         if url and url[:1] != b"/":
             url = b"/" + url
-        url = b"//%s%s" % ((netloc or b""), url)
+        url = b"//" + (netloc if netloc else b"") + url
+    if params:
+        url = url + b";" + params
     if scheme:
-        url = b"%s:%s" % (scheme, url)
+        url = scheme + b":" + url
+
+    out.append(url)
+
+    # Suffixes must match original urllib behavior, note ‘or’ logic allows empty query/fragment if original_url ends with those marks
     if query or (original_url and original_url[-1] in ("?", b"?")):
-        url = b"%s?%s" % (url, query)
+        out.append(b"?" + query)
     if fragment or (original_url and original_url[-1] in ("#", b"#")):
-        url = b"%s#%s" % (url, fragment)
-    return url
+        out.append(b"#" + fragment)
+
+    # Join all parts in one step
+    return b"".join(out)
 
 
 def connector(url, **kwargs):
