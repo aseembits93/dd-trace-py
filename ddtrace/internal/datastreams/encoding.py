@@ -34,12 +34,15 @@ def decode_var_uint_64(b):
     # type: (bytes) -> Tuple[int, bytes]
     x = 0
     s = 0
-    for i in range(0, MAX_VAR_LEN_64):
-        if len(b) <= i:
-            raise EOFError()
+    blen = len(b)
+    if blen > MAX_VAR_LEN_64:
+        limit = MAX_VAR_LEN_64
+    else:
+        limit = blen
+    for i in range(limit):
         n = _get_byte(b[i])
         if n < 0x80 or i == MAX_VAR_LEN_64 - 1:
             return x | n << s, b[i + 1 :]
         x |= (n & 0x7F) << s
         s += 7
-    raise EOFError
+    raise EOFError()
