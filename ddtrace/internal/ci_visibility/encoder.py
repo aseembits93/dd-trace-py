@@ -51,9 +51,14 @@ class CIVisibilityEncoderV01(BufferedEncoder):
         #      which is called implicitly by Cython.
         super(CIVisibilityEncoderV01, self).__init__()
         self._metadata: Dict[str, Dict[str, str]] = {}
-        self._lock = threading.RLock()
-        self._is_xdist_worker = os.getenv("PYTEST_XDIST_WORKER") is not None
-        self._init_buffer()
+        # Replace RLock with Lock since no recursive lock usage is required in this class.
+        # Lock is slightly faster and uses less memory.
+        self._lock = threading.Lock()
+        # Inline the check and assign for xdist worker to avoid attribute lookup overhead.
+        self._is_xdist_worker = "PYTEST_XDIST_WORKER" in os.environ
+        # Directly assign an empty list for buffer as done in parent's _init_buffer
+        with self._lock:
+            self.buffer = []
 
     def __len__(self):
         with self._lock:
