@@ -23,15 +23,7 @@ from ddtrace.trace import tracer as ddtracer
 
 
 if TYPE_CHECKING:
-    from typing import Mapping  # noqa:F401
-    from typing import Optional  # noqa:F401
-    from typing import Union  # noqa:F401
-
-    from opentelemetry.util.types import Attributes  # noqa:F401
-    from opentelemetry.util.types import AttributeValue  # noqa:F401
-
-    from ddtrace._trace.span import Span as DDSpan  # noqa:F401
-    from ddtrace.internal.compat import NumericType  # noqa:F401
+    pass
 
 
 log = get_logger(__name__)
@@ -185,16 +177,17 @@ class Span(OtelSpan):
         self._ddspan.set_tag(key, value)
 
     def add_event(self, name, attributes=None, timestamp=None):
-        # type: (str, Optional[Attributes], Optional[int]) -> None
         """Records an event"""
-        if not self.is_recording():
+        # Move finished check to local variable for faster lookup; avoids repeated attribute lookup
+        ddspan = self._ddspan
+        if ddspan.finished:
             return
 
-        if timestamp:
-            # timestamp arg is in micoseconds we must convert it to nanoseconds
-            timestamp = timestamp * 1000
-
-        self._ddspan._add_event(name, attributes, timestamp)
+        if timestamp is not None:
+            # timestamp arg is in microseconds we must convert it to nanoseconds
+            ddspan._add_event(name, attributes, timestamp * 1000)
+        else:
+            ddspan._add_event(name, attributes, timestamp)
 
     def update_name(self, name):
         # type: (str) -> None
