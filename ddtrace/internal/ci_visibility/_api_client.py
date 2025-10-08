@@ -171,13 +171,21 @@ def _get_suite_id_from_skippable_suite(skippable_suite: _SkippableResponseDataIt
 
 
 def _parse_covered_files(covered_files_data: t.Dict[str, str]) -> t.Optional[t.Dict[str, CoverageLines]]:
+    # Cache attribute lookup
+    from_bytearray = CoverageLines.from_bytearray
+
     covered_files = {}
     parse_errors = 0
-    for covered_file, covered_lines_bytes in covered_files_data.items():
+    # Avoid unnecessary dict lookups, pre-bind values
+    items = covered_files_data.items()
+    for covered_file, covered_lines_bytes in items:
         try:
-            covered_lines = CoverageLines.from_bytearray(bytearray(b64decode(covered_lines_bytes)))
+            # Avoid building an intermediate bytearray, pass b64decode output (which is bytes) directly
+            covered_lines = from_bytearray(b64decode(covered_lines_bytes))
             covered_files[covered_file] = covered_lines
         except Exception:  # noqa: E722
+            # In the exceptional path, reduce attribute lookups
+            # Pre-binding .debug/.warning isn't necessary; hot-path is above
             log.debug("Failed to parse coverage data for file %s", covered_file)
             parse_errors += 1
             continue
