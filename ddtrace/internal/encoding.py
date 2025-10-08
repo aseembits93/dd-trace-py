@@ -1,10 +1,5 @@
 import json
 from typing import TYPE_CHECKING
-from typing import Any  # noqa:F401
-from typing import Dict  # noqa:F401
-from typing import List  # noqa:F401
-from typing import Optional  # noqa:F401
-from typing import Tuple  # noqa:F401
 
 from ..settings._agent import config as agent_config  # noqa:F401
 from ._encoding import ListStringTable
@@ -18,7 +13,7 @@ __all__ = ["MsgpackEncoderV04", "MsgpackEncoderV05", "ListStringTable", "MSGPACK
 
 
 if TYPE_CHECKING:  # pragma: no cover
-    from ddtrace._trace.span import Span  # noqa:F401
+    pass
 
 log = get_logger(__name__)
 
@@ -104,12 +99,18 @@ class JSONEncoder(_EncoderBase):
 
     @staticmethod
     def _normalize_span(span):
-        # Ensure all string attributes are actually strings and not bytes
         # DEV: We are deferring meta/metrics to reduce any performance issues.
         #      Meta/metrics may still contain `bytes` and have encoding issues.
-        span["resource"] = JSONEncoder._normalize_str(span["resource"])
-        span["name"] = JSONEncoder._normalize_str(span["name"])
-        span["service"] = JSONEncoder._normalize_str(span["service"])
+
+        # Inline _normalize_str to avoid Python function call overhead for these very hot attributes
+        for key in ("resource", "name", "service"):
+            val = span[key]
+            if val is not None:
+                # Call ensure_text directly
+                span[key] = ensure_text(val, errors="backslashreplace")
+            else:
+                # preserve None exactly
+                span[key] = None
         return span
 
     @staticmethod
