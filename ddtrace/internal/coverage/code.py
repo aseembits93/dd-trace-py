@@ -272,12 +272,15 @@ class ModuleCodeCollector(ModuleWatchdog):
     def get_import_coverage_for_paths(cls, paths: t.Iterable[Path]) -> t.Optional[t.Dict[Path, CoverageLines]]:
         """Returns import-time coverage data for the given paths"""
         coverages: t.Dict[Path, CoverageLines] = {}
-        if cls._instance is None:
+        instance = cls._instance
+        if instance is None:
             return {}
-        for path in paths:
-            path_str = str(path)
-            if path_str in cls._instance._import_time_covered:
-                coverages[path] = cls._instance._import_time_covered[path_str]
+        import_time_covered = instance._import_time_covered
+        
+        path_strs = [(str(path), path) for path in paths]
+        for path_str, path in path_strs:
+            if path_str in import_time_covered:
+                coverages[path] = import_time_covered[path_str]
 
         return coverages
 
