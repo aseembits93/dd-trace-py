@@ -56,7 +56,6 @@ class ValueCollector(object):
         return modules
 
     def collect(self, keys=None):
-        # type: (Optional[Set[str]]) -> Optional[List[Tuple[str, str]]]
         """Returns metrics as collected by `collect_fn`.
 
         :param keys: The keys of the metrics to collect.
@@ -64,18 +63,23 @@ class ValueCollector(object):
         if not self.enabled:
             return self.value
 
-        keys = keys or set()
+        # Fast-path: treat None/empty keys as empty set
+        if keys is None or not keys:
+            filter_keys = None
+        else:
+            filter_keys = keys
 
         if not self.periodic and self.value_loaded:
             return self.value
 
-        # call underlying collect function and filter out keys not requested
-        # TODO: provide base method collect_fn() in ValueCollector
+        # call underlying collect function
         self.value = self.collect_fn(keys)  # type: ignore[attr-defined]
 
-        # filter values for keys
-        if len(keys) > 0 and isinstance(self.value, list):
-            self.value = [(k, v) for (k, v) in self.value if k in keys]
+        # OPTIMIZATION: use set for lookup, avoid unnecessary listcomps
+        if filter_keys is not None and isinstance(self.value, list):
+            filter_keys_set = filter_keys if isinstance(filter_keys, set) else set(filter_keys)
+            # use set comprehension if filter_keys_set is very large
+            self.value = [item for item in self.value if item[0] in filter_keys_set]
 
         self.value_loaded = True
         return self.value
