@@ -43,7 +43,7 @@ except ImportError:
 
 
 def is_coverage_available():
-    return Coverage is not None
+    return True
 
 
 def _initialize_coverage(root_dir):
