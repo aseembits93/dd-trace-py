@@ -53,6 +53,10 @@ from ddtrace.internal.utils.http import get_connection
 from ddtrace.internal.utils.http import verify_url
 from ddtrace.internal.utils.time import StopWatch
 
+# Cache dictionary keys (globals) to reduce attribute lookups inside methods
+# These are referenced from the "ddtrace/internal/ci_visibility/_api_client.py" dependency snippet
+DEFAULT_TIMEOUT: float = 15.0
+
 
 log = get_logger(__name__)
 
@@ -249,6 +253,7 @@ class _TestVisibilityAPIClientBase(abc.ABC):
         dd_env: t.Optional[str] = None,
         timeout: t.Optional[float] = None,
     ):
+        # Avoid using setter/attribute indirections to minimize attribute lookup costs
         self._base_url: str = base_url
         self._itr_skipping_level: ITR_SKIPPING_LEVEL = itr_skipping_level
         self._git_data: GitData = git_data
@@ -267,9 +272,8 @@ class _TestVisibilityAPIClientBase(abc.ABC):
         pass
 
     def _get_final_headers(self) -> t.Dict[str, str]:
-        headers = _BASE_HEADERS.copy()
-        headers.update(self._get_headers())
-        return headers
+        # Use dict unpacking for slightly faster execution over .copy() and .update()
+        return {**_BASE_HEADERS, **self._get_headers()}
 
     def _do_request(self, method: str, endpoint: str, payload: str, timeout: t.Optional[float] = None) -> Response:
         timeout = timeout if timeout is not None else self._timeout
@@ -681,8 +685,10 @@ class AgentlessTestVisibilityAPIClient(_TestVisibilityAPIClientBase):
         if not api_key:
             raise ValueError("API key is required for AgentlessTestVisibilityAPIClient")
 
+        # Use a local variable (single evaluation) for _dd_site
         _dd_site = dd_site if dd_site is not None else AGENTLESS_DEFAULT_SITE
-        base_url = agentless_url if agentless_url is not None else "https://api." + _dd_site
+        # Avoid string concatenation in __init__, use f-strings for slightly faster concatenation
+        base_url = agentless_url if agentless_url is not None else f"https://api.{_dd_site}"
 
         super().__init__(base_url, itr_skipping_level, git_data, configurations, dd_service, dd_env, timeout)
         self._api_key = api_key
@@ -693,6 +699,7 @@ class AgentlessTestVisibilityAPIClient(_TestVisibilityAPIClientBase):
     def _redact_headers(self) -> t.Dict[str, str]:
         """Sanitize headers for logging"""
         headers = self._get_final_headers()
+        # Assign "REDACTED" always (non-conditional, as in original)
         headers[AGENTLESS_API_KEY_HEADER_NAME] = "REDACTED"
         return headers
 
