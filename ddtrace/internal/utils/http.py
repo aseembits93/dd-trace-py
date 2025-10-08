@@ -29,6 +29,7 @@ from ddtrace.internal.constants import W3C_TRACESTATE_PARENT_ID_KEY
 from ddtrace.internal.constants import W3C_TRACESTATE_SAMPLING_PRIORITY_KEY
 from ddtrace.internal.utils import _get_metas_to_propagate
 from ddtrace.internal.utils.cache import cached
+from urllib.parse import unquote
 
 
 _W3C_TRACESTATE_INVALID_CHARS_REGEX_VALUE = re.compile(r",|;|~|[^\x20-\x7E]+")
@@ -369,12 +370,12 @@ def _get_blocked_template(accept_header_value):
 def parse_form_params(body: str) -> Dict[str, Union[str, List[str]]]:
     """Return a dict of form data after HTTP form parsing"""
     body_params = body.replace("+", " ")
-    req_body: Dict[str, Union[str, List[str]]] = dict()
+    req_body: Dict[str, Union[str, List[str]]] = {}
     for item in body_params.split("&"):
         key, equal, val = item.partition("=")
         if equal:
-            key = parse.unquote(key)
-            val = parse.unquote(val)
+            key = unquote(key)
+            val = unquote(val)
             prev_value = req_body.get(key, None)
             if prev_value is None:
                 req_body[key] = val
