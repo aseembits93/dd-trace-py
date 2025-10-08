@@ -180,28 +180,29 @@ def _patch_multiprocessing():
     if _is_patched():
         return
 
-    multiprocessing.process.BaseProcess._bootstrap = CoverageCollectingMultiprocess._bootstrap
-    multiprocessing.process.BaseProcess.__init__ = CoverageCollectingMultiprocess.__init__
-    multiprocessing.process.BaseProcess.close = CoverageCollectingMultiprocess.close
-    multiprocessing.process.BaseProcess.join = CoverageCollectingMultiprocess.join
-    multiprocessing.process.BaseProcess.kill = CoverageCollectingMultiprocess.kill
-    multiprocessing.process.BaseProcess.terminate = CoverageCollectingMultiprocess.terminate
-    multiprocessing.process.BaseProcess._absorb_child_coverage = CoverageCollectingMultiprocess._absorb_child_coverage
+    # Patch all required methods atomically
+    BaseProcess = multiprocessing.process.BaseProcess
+    BaseProcess._bootstrap = CoverageCollectingMultiprocess._bootstrap
+    BaseProcess.__init__ = CoverageCollectingMultiprocess.__init__
+    BaseProcess.close = CoverageCollectingMultiprocess.close
+    BaseProcess.join = CoverageCollectingMultiprocess.join
+    BaseProcess.kill = CoverageCollectingMultiprocess.kill
+    BaseProcess.terminate = CoverageCollectingMultiprocess.terminate
+    BaseProcess._absorb_child_coverage = CoverageCollectingMultiprocess._absorb_child_coverage
 
     try:
         from multiprocessing import spawn
-
         original_get_preparation_data = spawn.get_preparation_data
     except (ImportError, AttributeError):
         pass
     else:
-
+        # Move retrieval of include_paths outside the function body when possible
         def get_preparation_data_with_stowaway(name: str) -> t.Dict[str, t.Any]:
             """Make sure that the ModuleCodeCollector is installed as soon as possible, with the same include paths"""
             d = original_get_preparation_data(name)
-            include_paths = (
-                [] if ModuleCodeCollector._instance is None else ModuleCodeCollector._instance._include_paths
-            )
+            instance = ModuleCodeCollector._instance
+            include_paths = instance._include_paths if instance is not None else []
+            # Only create Stowaway if needed; avoids global lookup every call
             d["stowaway"] = Stowaway(include_paths=include_paths)
             return d
 
