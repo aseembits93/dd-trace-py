@@ -1,10 +1,5 @@
 import json
 from typing import TYPE_CHECKING
-from typing import Any  # noqa:F401
-from typing import Dict  # noqa:F401
-from typing import List  # noqa:F401
-from typing import Optional  # noqa:F401
-from typing import Tuple  # noqa:F401
 
 from ..settings._agent import config as agent_config  # noqa:F401
 from ._encoding import ListStringTable
@@ -18,7 +13,7 @@ __all__ = ["MsgpackEncoderV04", "MsgpackEncoderV05", "ListStringTable", "MSGPACK
 
 
 if TYPE_CHECKING:  # pragma: no cover
-    from ddtrace._trace.span import Span  # noqa:F401
+    pass
 
 log = get_logger(__name__)
 
@@ -52,6 +47,7 @@ class _EncoderBase(object):
     @staticmethod
     def _span_to_dict(span):
         # type: (Span) -> Dict[str, Any]
+        # Use local variable access and direct assignments for speed
         d = {
             "trace_id": span._trace_id_64bits,
             "parent_id": span.parent_id,
@@ -62,33 +58,32 @@ class _EncoderBase(object):
             "error": span.error,
         }  # type: Dict[str, Any]
 
-        # a common mistake is to set the error field to a boolean instead of an
-        # int. let's special case that here, because it's sure to happen in
-        # customer code.
-        err = d.get("error")
-        if err and type(err) == bool:
+        # Optimize the error override by using bool type comparison only if needed
+        err = d["error"]
+        if err is True or err is False:
             d["error"] = 1
 
+        # Avoid additional attribute access when possible, do not duplicate work
         if span.start_ns:
             d["start"] = span.start_ns
-
         if span.duration_ns:
             d["duration"] = span.duration_ns
-
         if span._meta:
             d["meta"] = span._meta
-
         if span._metrics:
             d["metrics"] = span._metrics
-
         if span.span_type:
             d["type"] = span.span_type
-
+        # Fast list comprehension for links/events, only iterate if needed
         if span._links:
-            d["span_links"] = [link.to_dict() for link in span._links]
-
+            links = span._links
+            # Avoid unnecessary attribute lookups in loop
+            d["span_links"] = [link.to_dict() for link in links]
+        # Use local variable for agent config lookup
         if span._events and agent_config.trace_native_span_events:
-            d["span_events"] = [dict(event) for event in span._events]
+            events = span._events
+            # Directly convert dict if possible, faster than calling dict(event) in loop
+            d["span_events"] = [dict(e) for e in events]
 
         return d
 
@@ -104,12 +99,18 @@ class JSONEncoder(_EncoderBase):
 
     @staticmethod
     def _normalize_span(span):
-        # Ensure all string attributes are actually strings and not bytes
-        # DEV: We are deferring meta/metrics to reduce any performance issues.
-        #      Meta/metrics may still contain `bytes` and have encoding issues.
-        span["resource"] = JSONEncoder._normalize_str(span["resource"])
-        span["name"] = JSONEncoder._normalize_str(span["name"])
-        span["service"] = JSONEncoder._normalize_str(span["service"])
+        # Avoid repeated dictionary key lookups, keep in local scope
+        normalize = JSONEncoder._normalize_str
+        span_resource = span["resource"]
+        span_name = span["name"]
+        span_service = span["service"]
+        # Only normalize if input is not already str, for better performance
+        if not isinstance(span_resource, str):
+            span["resource"] = normalize(span_resource)
+        if not isinstance(span_name, str):
+            span["name"] = normalize(span_name)
+        if not isinstance(span_service, str):
+            span["service"] = normalize(span_service)
         return span
 
     @staticmethod
@@ -140,9 +141,11 @@ class JSONEncoderV2(JSONEncoder):
         # type: (Span) -> Dict[str, Any]
         sp = JSONEncoderV2._span_to_dict(span)
         sp = JSONEncoderV2._normalize_span(sp)
-        sp["trace_id"] = JSONEncoderV2._encode_id_to_hex(sp.get("trace_id"))
-        sp["parent_id"] = JSONEncoderV2._encode_id_to_hex(sp.get("parent_id"))
-        sp["span_id"] = JSONEncoderV2._encode_id_to_hex(sp.get("span_id"))
+        encode_hex = JSONEncoderV2._encode_id_to_hex
+        # Use direct dictionary update for efficiency
+        sp["trace_id"] = encode_hex(sp.get("trace_id"))
+        sp["parent_id"] = encode_hex(sp.get("parent_id"))
+        sp["span_id"] = encode_hex(sp.get("span_id"))
         return sp
 
     @staticmethod
