@@ -156,13 +156,19 @@ class Stowaway:
 
     def __init__(self, include_paths: t.Optional[t.List[Path]] = None, dd_coverage_enabled: bool = True) -> None:
         self.dd_coverage_enabled: bool = dd_coverage_enabled
-        self.include_paths_strs: t.List[str] = []
+        # Precompute serialized include_paths if provided to avoid recomputation in __getstate__
         if include_paths is not None:
-            self.include_paths_strs = [str(include_path) for include_path in include_paths]
+            include_paths_strs = [str(include_path) for include_path in include_paths]
+            self._serialized_include_paths: str = json.dumps(include_paths_strs)
+            self.include_paths_strs: t.List[str] = include_paths_strs
+        else:
+            self.include_paths_strs: t.List[str] = []
+            self._serialized_include_paths: str = json.dumps(self.include_paths_strs)
 
     def __getstate__(self) -> t.Dict[str, t.Any]:
+        # Use cached json string for faster serialization
         return {
-            "include_paths_strs": json.dumps(self.include_paths_strs),
+            "include_paths_strs": self._serialized_include_paths,
             "dd_coverage_enabled": self.dd_coverage_enabled,
         }
 
