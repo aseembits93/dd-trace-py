@@ -35,7 +35,7 @@ class SchemaBuilder:
     def build(self):
         self.iterator.iterate_over_schema(self)
         no_nones = convert_to_json_compatible(self.schema)
-        definition = json.dumps(no_nones, default=lambda o: o.__dict__)
+        definition = json.dumps(no_nones, default=lambda o: o.__dict__, separators=(",", ":"))
         _id = str(fnv1_64(definition.encode("utf-8")))
         return Schema(definition, _id)
 
@@ -49,9 +49,10 @@ class SchemaBuilder:
 
     @staticmethod
     def get_schema(schema_name, iterator):
-        if schema_name not in SchemaBuilder.CACHE:
-            SchemaBuilder.CACHE[schema_name] = SchemaBuilder(iterator).build()
-        return SchemaBuilder.CACHE[schema_name]
+        cache = SchemaBuilder.CACHE
+        if schema_name not in cache:
+            cache[schema_name] = SchemaBuilder(iterator).build()
+        return cache[schema_name]
 
 
 @dataclass
