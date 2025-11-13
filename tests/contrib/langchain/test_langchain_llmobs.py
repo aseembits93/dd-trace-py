@@ -37,7 +37,7 @@ PROMPT_TEMPLATE_EXPECTED_CHAT_TEMPLATE = [
 ]
 
 
-def _create_multi_message_prompt_template(langchain_core):
+def _create_multi_message_prompt_template(langchain_core, metadata=None):
     """Helper function to create multi-message ChatPromptTemplate with mixed input types."""
     from langchain_core.messages import AIMessage
     from langchain_core.messages import HumanMessage
@@ -47,20 +47,22 @@ def _create_multi_message_prompt_template(langchain_core):
     from langchain_core.prompts import HumanMessagePromptTemplate
     from langchain_core.prompts import SystemMessagePromptTemplate
 
-    return langchain_core.prompts.ChatPromptTemplate.from_messages(
-        [
-            SystemMessage(content="You are a {role} assistant."),  # while this has handlebars, it is not a template
-            ("system", "Your expertise is in {domain}."),
-            SystemMessagePromptTemplate.from_template("Additional context: {context}"),
-            HumanMessage(content="I'm a user seeking help."),
-            ("human", "Please help with {task}"),
-            HumanMessagePromptTemplate.from_template("Specifically, I need {specific_help}"),
-            AIMessage(content="I understand your request."),
-            ("ai", "I'll help you with {task}."),
-            AIMessagePromptTemplate.from_template("Let me provide {output_type}"),
-            ChatMessagePromptTemplate.from_template("Make it {style} and under {limit} words", role="developer"),
-        ]
-    )
+    messages = [
+        SystemMessage(content="You are a {role} assistant."),  # while this has handlebars, it is not a template
+        ("system", "Your expertise is in {domain}."),
+        SystemMessagePromptTemplate.from_template("Additional context: {context}"),
+        HumanMessage(content="I'm a user seeking help."),
+        ("human", "Please help with {task}"),
+        HumanMessagePromptTemplate.from_template("Specifically, I need {specific_help}"),
+        AIMessage(content="I understand your request."),
+        ("ai", "I'll help you with {task}."),
+        AIMessagePromptTemplate.from_template("Let me provide {output_type}"),
+        ChatMessagePromptTemplate.from_template("Make it {style} and under {limit} words", role="developer"),
+    ]
+
+    template = langchain_core.prompts.ChatPromptTemplate.from_messages(messages=messages)
+    template.metadata = metadata
+    return template
 
 
 def _expected_langchain_llmobs_llm_span(
@@ -196,7 +198,9 @@ def test_llmobs_string_prompt_template_invoke(langchain_core, langchain_openai, 
     template_string = "You are a helpful assistant. Please answer this question: {question}"
     variable_dict = {"question": "What is machine learning?"}
     prompt_template = langchain_core.prompts.PromptTemplate(
-        input_variables=list(variable_dict.keys()), template=template_string
+        input_variables=list(variable_dict.keys()),
+        template=template_string,
+        metadata={"test_type": "basic_invoke", "author": "test_suite"},
     )
     llm = langchain_openai.OpenAI(base_url=openai_url)
     chain = prompt_template | llm
@@ -208,6 +212,9 @@ def test_llmobs_string_prompt_template_invoke(langchain_core, langchain_openai, 
     assert actual_prompt["id"] == "test_langchain_llmobs.prompt_template"
     assert actual_prompt["template"] == template_string
     assert actual_prompt["variables"] == variable_dict
+    # Check that metadata from the prompt template is preserved
+    assert "tags" in actual_prompt
+    assert actual_prompt["tags"] == {"test_type": "basic_invoke", "author": "test_suite"}
 
 
 def test_llmobs_string_prompt_template_direct_invoke(
@@ -217,7 +224,9 @@ def test_llmobs_string_prompt_template_direct_invoke(
     template_string = "Good {time_of_day}, {name}! How are you doing today?"
     variable_dict = {"name": "Alice", "time_of_day": "morning"}
     greeting_template = langchain_core.prompts.PromptTemplate(
-        input_variables=list(variable_dict.keys()), template=template_string
+        input_variables=list(variable_dict.keys()),
+        template=template_string,
+        metadata={"test_type": "direct_invoke", "interaction": "greeting", "not_string_1": True, "not_string_2": 10},
     )
     llm = langchain_openai.OpenAI(base_url=openai_url)
 
@@ -233,6 +242,9 @@ def test_llmobs_string_prompt_template_direct_invoke(
     assert actual_prompt["id"] == "test_langchain_llmobs.greeting_template"
     assert actual_prompt["template"] == template_string
     assert actual_prompt["variables"] == variable_dict
+    # Check that metadata from the prompt template is preserved
+    assert "tags" in actual_prompt
+    assert actual_prompt["tags"] == {"test_type": "direct_invoke", "interaction": "greeting"}
 
 
 def test_llmobs_string_prompt_template_invoke_chat_model(
@@ -281,7 +293,8 @@ def test_llmobs_string_prompt_template_single_variable_string_input(
 def test_llmobs_multi_message_prompt_template_sync_chain(
     langchain_core, langchain_openai, openai_url, llmobs_events, tracer
 ):
-    multi_message_template = _create_multi_message_prompt_template(langchain_core)
+    test_metadata = {"template_type": "multi_message", "test_scenario": "sync_chain", "message_count": 10}
+    multi_message_template = _create_multi_message_prompt_template(langchain_core, metadata=test_metadata)
     llm = langchain_openai.ChatOpenAI(base_url=openai_url)
     chain = multi_message_template | llm
 
@@ -306,6 +319,9 @@ def test_llmobs_multi_message_prompt_template_sync_chain(
     assert actual_prompt["variables"] == variable_dict
     assert actual_prompt.get("template") is None
     assert actual_prompt["chat_template"] == PROMPT_TEMPLATE_EXPECTED_CHAT_TEMPLATE
+    # Check that metadata from the multi-message prompt template is preserved
+    assert "tags" in actual_prompt
+    assert actual_prompt["tags"] == {k: v for k, v in test_metadata.items() if isinstance(v, str)}
 
 
 def test_llmobs_multi_message_prompt_template_sync_direct_invoke(
@@ -398,7 +414,6 @@ def test_llmobs_chain(langchain_core, langchain_openai, openai_url, llmobs_event
                 {"content": "{input}", "role": "user"},
             ],
             "variables": {"input": "Can you explain what an LLM chain is?"},
-            "version": "0.0.0",
             "_dd_context_variable_keys": ["context"],
             "_dd_query_variable_keys": ["question"],
         },
@@ -440,7 +455,6 @@ def test_llmobs_chain_nested(langchain_core, langchain_openai, openai_url, llmob
             "id": "langchain.unknown_prompt_template",
             "chat_template": [{"content": "what is the city {person} is from?", "role": "user"}],
             "variables": {"person": "Spongebob Squarepants", "language": "Spanish"},
-            "version": "0.0.0",
             "_dd_context_variable_keys": ["context"],
             "_dd_query_variable_keys": ["question"],
         },
@@ -453,7 +467,6 @@ def test_llmobs_chain_nested(langchain_core, langchain_openai, openai_url, llmob
             "id": "test_langchain_llmobs.prompt2",
             "chat_template": [{"content": "what country is the city {city} in? respond in {language}", "role": "user"}],
             "variables": {"city": mock.ANY, "language": "Spanish"},
-            "version": "0.0.0",
             "_dd_context_variable_keys": ["context"],
             "_dd_query_variable_keys": ["question"],
         },
@@ -489,7 +502,6 @@ def test_llmobs_chain_batch(langchain_core, langchain_openai, llmobs_events, tra
                 "id": "langchain.unknown_prompt_template",
                 "chat_template": [{"content": "Tell me a short joke about {topic}", "role": "user"}],
                 "variables": {"topic": "chickens"},
-                "version": "0.0.0",
                 "_dd_context_variable_keys": ["context"],
                 "_dd_query_variable_keys": ["question"],
             },
@@ -503,7 +515,6 @@ def test_llmobs_chain_batch(langchain_core, langchain_openai, llmobs_events, tra
                 "id": "langchain.unknown_prompt_template",
                 "chat_template": [{"content": "Tell me a short joke about {topic}", "role": "user"}],
                 "variables": {"topic": "pigs"},
-                "version": "0.0.0",
                 "_dd_context_variable_keys": ["context"],
                 "_dd_query_variable_keys": ["question"],
             },
@@ -518,7 +529,6 @@ def test_llmobs_chain_batch(langchain_core, langchain_openai, llmobs_events, tra
                 "id": "langchain.unknown_prompt_template",
                 "chat_template": [{"content": "Tell me a short joke about {topic}", "role": "user"}],
                 "variables": {"topic": "chickens"},
-                "version": "0.0.0",
                 "_dd_context_variable_keys": ["context"],
                 "_dd_query_variable_keys": ["question"],
             },
@@ -532,7 +542,6 @@ def test_llmobs_chain_batch(langchain_core, langchain_openai, llmobs_events, tra
                 "id": "langchain.unknown_prompt_template",
                 "chat_template": [{"content": "Tell me a short joke about {topic}", "role": "user"}],
                 "variables": {"topic": "pigs"},
-                "version": "0.0.0",
                 "_dd_context_variable_keys": ["context"],
                 "_dd_query_variable_keys": ["question"],
             },
@@ -831,6 +840,11 @@ class TestTraceStructureWithLLMIntegrations(SubprocessTestCase):
         DD_API_KEY="<not-a-real-key>",
     )
 
+    azure_openai_env_config = dict(
+        OPENAI_API_VERSION="2024-12-01-preview",
+        AZURE_OPENAI_API_KEY=os.getenv("AZURE_OPENAI_API_KEY", "testing"),
+    )
+
     anthropic_env_config = dict(
         ANTHROPIC_API_KEY=os.getenv("ANTHROPIC_API_KEY", "testing"),
         DD_API_KEY="<not-a-real-key>",
@@ -876,6 +890,11 @@ class TestTraceStructureWithLLMIntegrations(SubprocessTestCase):
         llm.invoke("Can you explain what Descartes meant by 'I think, therefore I am'?")
 
     @staticmethod
+    def _call_azure_openai_chat(AzureChatOpenAI):
+        llm = AzureChatOpenAI(azure_endpoint="http://localhost:9126/vcr/azure_openai", deployment_name="gpt-4.1-mini")
+        llm.invoke("Can you explain what Descartes meant by 'I think, therefore I am'?")
+
+    @staticmethod
     def _call_openai_embedding(OpenAIEmbeddings):
         embedding = OpenAIEmbeddings(base_url="http://localhost:9126/vcr/openai")
         with mock.patch("langchain_openai.embeddings.base.tiktoken.encoding_for_model") as mock_encoding_for_model:
@@ -906,6 +925,15 @@ class TestTraceStructureWithLLMIntegrations(SubprocessTestCase):
         patch(langchain=True, openai=True)
         LLMObs.enable(ml_app="<ml-app-name>", integrations_enabled=False)
         self._call_openai_llm(OpenAI)
+        self._assert_trace_structure_from_writer_call_args(["workflow", "llm"])
+
+    @run_in_subprocess(env_overrides=azure_openai_env_config)
+    def test_llmobs_with_openai_enabled_azure(self):
+        from langchain_openai import AzureChatOpenAI
+
+        patch(langchain=True, openai=True)
+        LLMObs.enable(ml_app="<ml-app-name>", integrations_enabled=False)
+        self._call_azure_openai_chat(AzureChatOpenAI)
         self._assert_trace_structure_from_writer_call_args(["workflow", "llm"])
 
     @run_in_subprocess(env_overrides=openai_env_config)
@@ -948,6 +976,16 @@ class TestTraceStructureWithLLMIntegrations(SubprocessTestCase):
 
         LLMObs.enable(ml_app="<ml-app-name>", integrations_enabled=False)
         self._call_openai_llm(OpenAI)
+        self._assert_trace_structure_from_writer_call_args(["llm"])
+
+    @run_in_subprocess(env_overrides=azure_openai_env_config)
+    def test_llmobs_with_openai_disabled_azure(self):
+        from langchain_openai import AzureChatOpenAI
+
+        patch(langchain=True)
+
+        LLMObs.enable(ml_app="<ml-app-name>", integrations_enabled=False)
+        self._call_azure_openai_chat(AzureChatOpenAI)
         self._assert_trace_structure_from_writer_call_args(["llm"])
 
     @run_in_subprocess(env_overrides=anthropic_env_config)
